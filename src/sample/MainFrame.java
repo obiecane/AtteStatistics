@@ -201,7 +201,7 @@ public class MainFrame extends JFrame {
 
                     notifyArea.append(String.format("[%s] 正在生成Excel, 请稍候...\n", LocalDateTime.now().format(DTF_Y_M_D_H_M_S)));
                     File excel = ExcelUtils.genAndWriteExcel(list);
-                    notifyArea.append(String.format("[%s] Excel生成完成, 文件位置:[%s]\n", LocalDateTime.now().format(DTF_Y_M_D_H_M_S), excel.getAbsolutePath()));
+                    notifyArea.append(String.format("[%s] Excel生成完成, 文件位置:[%s]\n", LocalDateTime.now().format(DTF_Y_M_D_H_M_S), excel.getCanonicalPath()));
                 } catch (Exception ex) {
                     notifyArea.append(String.format("[%s] %s",LocalDateTime.now().format(DTF_Y_M_D_H_M_S), ex.getMessage()));
                 }
