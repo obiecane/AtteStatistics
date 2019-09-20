@@ -1,13 +1,13 @@
 package sample;
 
+import sample.utils.StringUtils;
+
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.*;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
+import java.lang.reflect.Field;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
@@ -26,15 +26,30 @@ import javax.swing.plaf.FontUIResource;
  */
 public class MainFrame extends JFrame {
 
-    private static final String VERSION = "v1.2";
+    private static final String VERSION = "v1.3.0";
+
+    /** 加班起始时间 */
+    private LocalTime baseOvertime = LocalTime.of(18, 0);
 
     private JTextField fileTextField;
     private JTextField datesTextField;
     private JTextArea notifyArea;
     private List<LocalDate> datesList = Collections.emptyList();
+    private JPanel settingPanel;
+    private JPanel aboutPanel;
+    private Setting setting = Setting.getSetting();
 
     public MainFrame() {
-        initGlobalFont();
+        String msg = null;
+        try {
+            readSetting();
+            initGlobalFont();
+            initMenuPanel();
+            initMenu();
+        } catch (Exception e) {
+            msg = e.getMessage();
+        }
+
         Box mainBox = Box.createVerticalBox();
         Box fBox = Box.createHorizontalBox();
         Box dBox = Box.createHorizontalBox();
@@ -182,11 +197,11 @@ public class MainFrame extends JFrame {
 
                 try {
                     // 指纹打卡记录
-                    Map<Integer, List<LocalDateTime>> checkInMap = fetchCheckIn(file, datesList);
+                    Map<Integer, List<LocalDateTime>> checkInMap = fetchCheckIn(file);
                     // 上下班打卡记录
                     Map<Integer, List<WorkRecord>> workRecordMap = resolveWorkLog(checkInMap, datesList);
-                    // 考勤统计
-                    Map<Integer, AtteStatistics> statisticsMap = analysisAtteStatisticsMap(workRecordMap);
+//                    // 考勤统计
+//                    Map<Integer, AtteStatistics> statisticsMap = analysisAtteStatisticsMap(workRecordMap);
 
                     List<WorkRecord> list = new LinkedList<>();
                     workRecordMap.values().forEach(list::addAll);
@@ -194,7 +209,6 @@ public class MainFrame extends JFrame {
                             .sorted((o1, o2) -> {
                                 int c1 = o1.getWorkNum() - o2.getWorkNum();
                                 int c2 = o1.getDate().compareTo(o2.getDate());
-                                System.out.println(c2);
                                 return c1 * 1000000 + c2;
                             })
                             .collect(Collectors.toList());
@@ -203,6 +217,7 @@ public class MainFrame extends JFrame {
                     File excel = ExcelUtils.genAndWriteExcel(list);
                     notifyArea.append(String.format("[%s] Excel生成完成, 文件位置:[%s]\n", LocalDateTime.now().format(DTF_Y_M_D_H_M_S), excel.getCanonicalPath()));
                 } catch (Exception ex) {
+                    ex.printStackTrace();
                     notifyArea.append(String.format("[%s] %s",LocalDateTime.now().format(DTF_Y_M_D_H_M_S), ex.getMessage()));
                 }
             }
@@ -255,13 +270,18 @@ public class MainFrame extends JFrame {
         notifyArea.setLineWrap(true);
         notifyArea.setEditable(false);
         notifyArea.setFont(new Font("宋体", Font.PLAIN, 15));
+        if (msg != null) {
+            notifyArea.append(String.format("[%s] %s",LocalDateTime.now().format(DTF_Y_M_D_H_M_S), msg));
+        }
         labelBox.add(new JScrollPane(notifyArea));
 
+        JPanel pp = new JPanel();
+        pp.setLayout(new BorderLayout());
+        pp.add(mainBox, BorderLayout.NORTH);
+        pp.add(labelBox, BorderLayout.CENTER);
+        this.add(pp, BorderLayout.CENTER);
 
-        this.add(mainBox, BorderLayout.NORTH);
-        this.add(labelBox, BorderLayout.CENTER);
-
-        this.setBounds(0, 0, 500, 300);
+        this.setBounds(0, 0, 700, 500);
         this.setLocationRelativeTo(null);
         this.setTitle("考勤统计 " + VERSION);
         this.setVisible(true);
@@ -280,38 +300,160 @@ public class MainFrame extends JFrame {
         }
     }
 
+    private void initMenuPanel() {
+        aboutPanel = new JPanel();
+        Box aboutBox = Box.createVerticalBox();
+        aboutBox.add(new JLabel("作者: zak"));
+        aboutBox.add(new JLabel("版本: " + VERSION));
+        aboutBox.add(Box.createVerticalStrut(5000));
+        aboutPanel.add(aboutBox);
+
+        settingPanel = new JPanel();
+        settingPanel.setLayout(new BorderLayout());
+        Box settingBox = Box.createVerticalBox();
+        Box box1 = Box.createHorizontalBox();
+        box1.add(new JLabel("上班时间:　　"));
+        JTextField t1 = new JTextField(10);
+        t1.setText(setting.getStandardWorkingTimeStr());
+        box1.add(t1);
+
+        Box box2 = Box.createHorizontalBox();
+        box2.add(new JLabel("下班时间:　　"));
+        JTextField t2 = new JTextField(10);
+        t2.setText(setting.getStandardOffWorkTimeStr());
+        box2.add(t2);
+
+        Box box3 = Box.createHorizontalBox();
+        box3.add(new JLabel("加班起始时间:"));
+        JTextField t3 = new JTextField(10);
+        t3.setText(setting.getStandardOvertimeStr());
+        box3.add(t3);
+
+        settingBox.add(box1);
+        settingBox.add(box2);
+        settingBox.add(box3);
+        settingBox.add(Box.createVerticalStrut(5000));
+        settingPanel.add(settingBox, BorderLayout.CENTER);
+        JButton saveSettingButton = new JButton("保存");
+        saveSettingButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                setting.setStandardWorkingTimeStr(t1.getText());
+                setting.setStandardOffWorkTimeStr(t2.getText());
+                setting.setStandardOvertimeStr(t3.getText());
+                saveSetting();
+
+                Container par = settingPanel;
+                do {
+                    par = par.getParent();
+                } while (par != null && !(par instanceof DDialog));
+
+                if (par != null) {
+                    DDialog d = (DDialog) par;
+                    d.dispose();
+                }
+            }
+        });
+        settingPanel.add(saveSettingButton, BorderLayout.SOUTH);
+    }
+
+    private void initMenu() {
+        //创建菜单栏
+        JMenuBar menuBar = new JMenuBar();
+        //创建菜单
+        JMenu setting=new JMenu("设置");
+        setting.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                // show dialog window
+                DDialog.showDialog("设置", MainFrame.this, settingPanel);
+            }
+        });
+
+        JMenu about=new JMenu("关于");
+        about.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                DDialog.showDialog("关于", MainFrame.this, aboutPanel);
+            }
+        });
+        menuBar.add(setting);
+        menuBar.add(about);
+        this.add(menuBar,BorderLayout.NORTH);
+    }
+
+
+    private void readSetting() {
+        File baseDir = new File(System.getProperty("user.home"));
+        File settingFile = new File(baseDir, ".jeecms-attendance-analysis.conf");
+        if (!settingFile.exists()) {
+            return;
+        }
+        try (BufferedReader reader = new BufferedReader(new FileReader(settingFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                int si = line.indexOf("=");
+                if (si < 1 || si == line.length() - 1) {
+                    continue;
+                }
+                String key = line.substring(0, si);
+                String value = line.substring(si + 1);
+
+                try {
+                    Field field = Setting.class.getDeclaredField(key);
+                    field.setAccessible(true);
+                    field.set(setting, value);
+                } catch (Exception ignore) {
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("读取设置失败");
+        }
+    }
+
+    private void saveSetting() {
+        File baseDir = new File(System.getProperty("user.home"));
+        File settingFile = new File(baseDir, ".jeecms-attendance-analysis.conf");
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(settingFile))) {
+            Field[] fields = Setting.class.getDeclaredFields();
+            Field.setAccessible(fields, true);
+            for (Field field : fields) {
+                writer.write(field.getName() + "=" + field.get(setting) + "\n");
+            }
+            writer.flush();
+        } catch (Exception e) {
+            throw new RuntimeException("保存设置失败");
+        }
+    }
 
     /**
      * 从文件中提取打卡信息
      *
      * @param file      文件
-     * @param workTimes 工作日期
      * @return java.util.Map<java.lang.Integer, java.util.List < java.time.LocalDateTime>>
      * @author Zhu Kaixiao
      * @date 2019/6/18 9:09
      **/
-    private Map<Integer, List<LocalDateTime>> fetchCheckIn(File file, List<LocalDate> workTimes) throws Exception {
+    private Map<Integer, List<LocalDateTime>> fetchCheckIn(File file) throws Exception {
         Map<Integer, List<LocalDateTime>> ret = new HashMap<>(64);
         Set<Integer> workNumSet = new HashSet<>(32);
-
-        Set<Integer> workDaySet = workTimes.stream()
-                .map(LocalDate::getDayOfYear)
-                .collect(Collectors.toSet());
 
         String line;
         try (BufferedReader r = new BufferedReader(new FileReader(file))) {
             while ((line = r.readLine()) != null) {
+                if (StringUtils.isBlank(line)) {
+                    continue;
+                }
                 Matcher matcher = PATTERN_CK_IN.matcher(line);
                 if (matcher.find()) {
                     LocalDateTime datetime = LocalDateTime.parse(matcher.group(2), DTF_CK_IN);
                     int workNum = Integer.parseInt(matcher.group(1));
                     workNumSet.add(workNum);
-                    // 如果日期在制定的工作日期范围之内
-                    if (workDaySet.contains(datetime.getDayOfYear())) {
-                        ret.putIfAbsent(workNum, new LinkedList<>());
-                        List<LocalDateTime> dates = ret.get(workNum);
-                        dates.add(datetime);
-                    }
+                    ret.putIfAbsent(workNum, new LinkedList<>());
+                    List<LocalDateTime> dates = ret.computeIfAbsent(workNum, integer -> new LinkedList<>());
+                    dates.add(datetime);
+
                 } else {
                     throw new Exception("正则表达式匹配失败!");
                 }
@@ -341,6 +483,9 @@ public class MainFrame extends JFrame {
     private Map<Integer, List<WorkRecord>> resolveWorkLog(Map<Integer, List<LocalDateTime>> map, List<LocalDate> workTimes) {
         Map<Integer, List<WorkRecord>> ret = new HashMap<>(32);
 
+        Map<Integer, List<LocalDate>> workDayMap = workTimes.stream()
+                .collect(Collectors.groupingBy(LocalDate::getDayOfYear));
+
         for (Map.Entry<Integer, List<LocalDateTime>> entry : map.entrySet()) {
             Integer workNum = entry.getKey();
             List<LocalDateTime> value = entry.getValue();
@@ -351,50 +496,94 @@ public class MainFrame extends JFrame {
                             map(l -> l.plusHours(-6)).
                             collect(Collectors.groupingBy(LocalDateTime::getDayOfYear));
             Set<Integer> punchDailyKeySet = punchDaily.keySet();
-            ret.putIfAbsent(workNum, new ArrayList<>(punchDaily.size()));
-            List<WorkRecord> workRecords = ret.get(workNum);
+            List<WorkRecord> workRecords = ret.computeIfAbsent(workNum, i -> new ArrayList<>(punchDaily.size()));
 
-            for (LocalDate workDate : workTimes) {
-                // 迭代规定上班时间
-                int workDateDay = workDate.getDayOfYear();
+            Set<Integer> allDaySet = new HashSet<>(punchDailyKeySet);
+            allDaySet.addAll(workDayMap.keySet());
+
+            for (Integer dayOfYear : allDaySet) {
                 WorkRecord workRecord = new WorkRecord();
-                workRecord.setWorkNum(workNum);
-                workRecord.setDate(workDate);
-                workRecords.add(workRecord);
+                if (workDayMap.containsKey(dayOfYear)) {
+                    // 迭代规定上班时间
+                    LocalDate workDate = workDayMap.get(dayOfYear).get(0);
+                    workRecord.setWorkday(true);
+                    workRecord.setWorkNum(workNum);
+                    workRecord.setDate(workDate);
+                    workRecords.add(workRecord);
 
-                if (punchDailyKeySet.contains(workDateDay)) {
-                    List<LocalDateTime> punchTime = punchDaily.get(workDateDay);
+                    if (punchDailyKeySet.contains(dayOfYear)) {
+                        List<LocalDateTime> punchTime = punchDaily.get(dayOfYear);
+                        // 当天最早打卡
+                        Optional<LocalDateTime> min = punchTime.stream().min(Comparator.naturalOrder());
+                        // 当天最晚打卡
+                        Optional<LocalDateTime> max = punchTime.stream().max(Comparator.naturalOrder());
+                        if (min.isPresent()) {
+                            LocalDateTime goWork = min.get();
+                            // 只有在18点之前的打卡记录才被认为是打上班卡
+                            if (goWork.getHour() < 12) {
+                                workRecord.setGoWork(goWork.plusHours(6));
+                            }
+                        }
+                        if (max.isPresent()) {
+                            LocalDateTime offWork = max.get();
+                            // 不等于上班卡时间, 且晚于8:30:59,
+                            // 而且最少比上班卡时间晚5分钟(如果迟到了的时候, 打卡按住不放(重复打上班卡),
+                            // 又刚好这天忘记打下班卡, 那么就会把重复的上班卡记录的最后一次误判为下班卡;
+                            // 最少比上班卡时间晚5分钟就是为了避免这种情况)
+                            // 则被认为打的是下班卡
+                            // 之所以是 > 9059, 是因为8:30:59往前偏移了6小时, 则是2:30:59
+                            // 2:30:59从当天0:00起为 9059秒
+                            int offSecs = offWork.toLocalTime().toSecondOfDay();
+                            int goSecs = min.map(ld -> ld.toLocalTime().toSecondOfDay()).orElse(-300);
+                            if (!offWork.equals(min.orElse(null))
+                                    && offSecs > 9059
+                                    && offSecs - goSecs > 300) {
+                                workRecord.setOffWork(offWork.plusHours(6));
+
+                                // TODO  如果下班时间大于加班基础时间, 则计算加班时长, 要注意加班到凌晨的情况
+                                LocalDateTime todayBaseOvertime = LocalDateTime.of(offWork.toLocalDate(),
+                                        setting.getStandardOvertime().minusHours(6));
+                                if (offWork.isAfter(todayBaseOvertime)) {
+                                    // TODO 计算
+                                    long diffMill = offWork.toInstant(ZoneOffset.of("+8")).toEpochMilli()
+                                            - todayBaseOvertime.toInstant(ZoneOffset.of("+8")).toEpochMilli();
+                                    workRecord.setOvertimeDuration(diffMill);
+                                }
+                            }
+                        }
+                    } else {
+                        // 该天缺卡
+                        // do nothing
+                    }
+                } else {
+                    // 剩下的就是非工作日来加班的
+                    workRecord.setWorkday(false);
+                    workRecord.setWorkNum(workNum);
+                    workRecord.setDate(punchDaily.get(dayOfYear).get(0).toLocalDate());
+                    workRecords.add(workRecord);
+
+                    List<LocalDateTime> punchTime = punchDaily.get(dayOfYear);
                     // 当天最早打卡
                     Optional<LocalDateTime> min = punchTime.stream().min(Comparator.naturalOrder());
                     // 当天最晚打卡
                     Optional<LocalDateTime> max = punchTime.stream().max(Comparator.naturalOrder());
+
                     if (min.isPresent()) {
                         LocalDateTime goWork = min.get();
-                        // 只有在18点之前的打卡记录才被认为是打上班卡
-                        if (goWork.getHour() < 12) {
-                            workRecord.setGoWork(goWork.plusHours(6));
-                        }
+                        workRecord.setGoWork(goWork.plusHours(6));
                     }
                     if (max.isPresent()) {
                         LocalDateTime offWork = max.get();
-                        // 不等于上班卡时间, 且晚于8:30:59,
-                        // 而且最少比上班卡时间晚5分钟(如果迟到了的时候, 打卡按住不放(重复打上班卡),
-                        // 又刚好这天忘记打下班卡, 那么就会把重复的上班卡记录的最后一次误判为下班卡;
-                        // 最少比上班卡时间晚5分钟就是为了避免这种情况)
-                        // 则被认为打的是下班卡
-                        // 之所以是 > 9059, 是因为8:30:59往前偏移了6小时, 则是2:30:59
-                        // 2:30:59从当天0:00起为 9059秒
-                        int offSecs = offWork.toLocalTime().toSecondOfDay();
-                        int goSecs = min.map(ld -> ld.toLocalTime().toSecondOfDay()).orElse(-300);
-                        if (!offWork.equals(min.orElse(null))
-                                && offSecs > 9059
-                                && offSecs - goSecs > 300) {
+                        if (!offWork.equals(min.orElse(null))) {
                             workRecord.setOffWork(offWork.plusHours(6));
                         }
                     }
-                } else {
-                    // 该天缺卡
-                    // do nothing
+
+                    if (min.isPresent() && max.isPresent()) {
+                        long diffMill = max.get().toInstant(ZoneOffset.of("+8")).toEpochMilli()
+                                - min.get().toInstant(ZoneOffset.of("+8")).toEpochMilli();
+                        workRecord.setOvertimeDuration(diffMill);
+                    }
                 }
             }
         }
@@ -412,9 +601,9 @@ public class MainFrame extends JFrame {
      **/
     private Map<Integer, AtteStatistics> analysisAtteStatisticsMap(Map<Integer, List<WorkRecord>> workLogMap) {
         // 规定上班时间
-        LocalTime standardWorkingTime = LocalTime.of(8, 30, 59);
+        LocalTime standardWorkingTime = setting.getStandardWorkingTime();
         // 规定下班时间
-        LocalTime standardOffWorkTime = LocalTime.of(18, 0);
+        LocalTime standardOffWorkTime = setting.getStandardOffWorkTime();
         Map<Integer, AtteStatistics> statisticsMap = new HashMap<>(workLogMap.size());
 
         for (Map.Entry<Integer, List<WorkRecord>> entry : workLogMap.entrySet()) {
@@ -521,6 +710,15 @@ public class MainFrame extends JFrame {
 
     public static class WorkRecord {
         /**
+         * 是否工作日
+         */
+        boolean isWorkday;
+
+        /**
+         * 旷工, 1半天, 2全天
+         */
+        Integer completion;
+        /**
          * 工号
          */
         Integer workNum;
@@ -537,37 +735,86 @@ public class MainFrame extends JFrame {
          */
         LocalDateTime offWork;
 
+        /** 加班时长 毫秒*/
+        Long overtimeDuration;
 
-        public Integer getWorkNum() {
+        /** 迟到时长 分钟*/
+        Integer lateDuration;
+
+        /** 早退时长 分钟*/
+        Integer earlyDuration;
+
+
+        Integer getWorkNum() {
             return workNum;
         }
 
-        public void setWorkNum(Integer workNum) {
+        void setWorkNum(Integer workNum) {
             this.workNum = workNum;
         }
 
-        public LocalDate getDate() {
+        LocalDate getDate() {
             return date;
         }
 
-        public void setDate(LocalDate date) {
+        void setDate(LocalDate date) {
             this.date = date;
         }
 
-        public LocalDateTime getGoWork() {
+        LocalDateTime getGoWork() {
             return goWork;
         }
 
-        public void setGoWork(LocalDateTime goWork) {
+        void setGoWork(LocalDateTime goWork) {
             this.goWork = goWork;
         }
 
-        public LocalDateTime getOffWork() {
+        LocalDateTime getOffWork() {
             return offWork;
         }
 
-        public void setOffWork(LocalDateTime offWork) {
+        void setOffWork(LocalDateTime offWork) {
             this.offWork = offWork;
+        }
+
+        Long getOvertimeDuration() {
+            return overtimeDuration;
+        }
+
+        void setOvertimeDuration(Long overtimeDuration) {
+            this.overtimeDuration = overtimeDuration;
+        }
+
+        public boolean isWorkday() {
+            return isWorkday;
+        }
+
+        public void setWorkday(boolean workday) {
+            isWorkday = workday;
+        }
+
+        public Integer getLateDuration() {
+            return lateDuration;
+        }
+
+        public void setLateDuration(Integer lateDuration) {
+            this.lateDuration = lateDuration;
+        }
+
+        public Integer getEarlyDuration() {
+            return earlyDuration;
+        }
+
+        public void setEarlyDuration(Integer earlyDuration) {
+            this.earlyDuration = earlyDuration;
+        }
+
+        public Integer getCompletion() {
+            return completion;
+        }
+
+        public void setCompletion(Integer completion) {
+            this.completion = completion;
         }
     }
 

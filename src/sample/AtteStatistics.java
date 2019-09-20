@@ -51,6 +51,9 @@ public class AtteStatistics {
      */
     private Integer forgetOffWorkCount;
 
+    /** 加班时长 */
+    private Long overtimeDuration;
+
 
     public Integer getWorkNum() {
         return workNum;
@@ -114,5 +117,13 @@ public class AtteStatistics {
 
     public void setForgetOffWorkCount(Integer forgetOffWorkCount) {
         this.forgetOffWorkCount = forgetOffWorkCount;
+    }
+
+    public Long getOvertimeDuration() {
+        return overtimeDuration;
+    }
+
+    public void setOvertimeDuration(Long overtimeDuration) {
+        this.overtimeDuration = overtimeDuration;
     }
 }
