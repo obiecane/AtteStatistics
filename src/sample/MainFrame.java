@@ -28,9 +28,6 @@ public class MainFrame extends JFrame {
 
     private static final String VERSION = "v1.3.0";
 
-    /** 加班起始时间 */
-    private LocalTime baseOvertime = LocalTime.of(18, 0);
-
     private JTextField fileTextField;
     private JTextField datesTextField;
     private JTextArea notifyArea;
